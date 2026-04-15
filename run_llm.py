@@ -7,8 +7,28 @@ import sys
 import argparse
 import time
 
-# 确保能找到项目模块
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+def parse_args():
+    parser = argparse.ArgumentParser(description='LLM 策略量化交易回测系统')
+    # 添加参数
+    parser.add_argument('--mode', type=str, default='llm', help='回测模式，固定为llm')
+    parser.add_argument('--trade_file', type=str, required=True, help='调仓表文件路径(必须提供)')
+    parser.add_argument('--output', type=str, default='result/llm_output.txt', help='输出结果文件路径')  
+    parser.add_argument('--plot_output', type=str, default='plot/llm_strategy_plot.png', help='策略回测资产变化图保存路径')
+    parser.add_argument('--plot_trades', action='store_true', default=False, help='是否绘制每只股票的买卖点图 (默认关闭)')
+    parser.add_argument('--verbose', action='store_true', help='是否输出详细信息')
+    parser.add_argument('--project_root', type=str, default='/workspace', help='QuantBacktester项目的根目录路径')
+    
+    return parser.parse_args()
+
+# 解析参数 (必须在导入项目模块之前执行，因为我们需要知道项目根目录)
+args = parse_args()
+
+# 动态将项目根目录加入到 sys.path 中，以便能在任何地方运行并成功导入包
+project_root = os.path.abspath(args.project_root)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# 确保能找到项目模块之后再导入项目内的包
 from main import BacktestManager
 from utils.config import config
 from utils.util import portfolio_df_to_dict, cash_value_save_state
@@ -22,19 +42,6 @@ logging.basicConfig(
 
 def run():
     """主程序入口"""
-    parser = argparse.ArgumentParser(description='LLM 策略量化交易回测系统')
-
-    # 添加参数
-    parser.add_argument('--mode', type=str, default='llm', help='回测模式，固定为llm')
-    parser.add_argument('--trade_file', type=str, required=True, help='调仓表文件路径(必须提供)')
-    parser.add_argument('--output', type=str, default='result/llm_output.txt', help='输出结果文件路径')  
-    parser.add_argument('--plot_output', type=str, default='plot/llm_strategy_plot.png', help='策略回测资产变化图保存路径')
-    parser.add_argument('--plot_trades', action='store_true', default=False, help='是否绘制每只股票的买卖点图 (默认关闭)')
-    parser.add_argument('--verbose', action='store_true', help='是否输出详细信息')
-    
-    # 解析参数
-    args = parser.parse_args()
-    
     # 验证输入文件
     if not os.path.exists(args.trade_file):
         logging.error(f"调仓表文件不存在: {args.trade_file}")
