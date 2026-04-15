@@ -574,11 +574,14 @@ class BacktestManager:
         return result
 
 
-    def run_llm_backtest(self, trade_file=None,plot_output="plot/strategy_plot.png", verbose=True):
+    def run_llm_backtest(self, trade_file=None,plot_output="plot/strategy_plot.png", plot_trades=True, verbose=True):
         """
         执行全量回测
 
         参数:
+            trade_file: 调仓表文件路径
+            plot_output: 策略回测图输出路径
+            plot_trades: 是否绘制买卖点图
             verbose: 是否输出详细信息
 
         返回:
@@ -593,6 +596,7 @@ class BacktestManager:
         end_date = config.backtest.strategy.end_date
         if 'datetime' not in trade_list.columns:
             trade_list.rename(columns={'date': 'datetime', 'stock_code': "instrument"}, inplace=True)
+        if 'score' in trade_list.columns and 'rank' in trade_list.columns:
             trade_list=trade_list[['datetime','instrument','score','rank']]
             trade_list = (
                 trade_list
@@ -647,6 +651,7 @@ class BacktestManager:
             perc=perc,
             trade_list=trade_list,
             codeslist=sectioncodes,
+            plot_trades=plot_trades
         )
         print("开始执行回测...")
 

@@ -103,7 +103,7 @@ class LLMStrategy(bt.Strategy):
     params=()
 
     def __init__(self, st_dict, dividends, dividends_probonus, dividends_changert, BenchmarkDetailData,
-                 BaseStockDetailData, start_date,end_date,cash, commission, perc, codeslist,trade_list):
+                 BaseStockDetailData, start_date,end_date,cash, commission, perc, codeslist,trade_list,plot_trades=True):
         """
             # 初始化函数
             # 参数：
@@ -204,6 +204,7 @@ class LLMStrategy(bt.Strategy):
         self.stop_loss = 0.3
         self.order_reasons = {}
         self.verbose=False
+        self.plot_trades=plot_trades
 
         # 添加交易统计相关变量
         self.trade_stats = []  # 存储交易统计数据
@@ -768,7 +769,8 @@ class LLMStrategy(bt.Strategy):
         )
         # 打印回测日收益和基准日收益、收益差值数据
         self.log(f'回测日收益和基准日收益、收益差值数据:{self.benchmark_portfolio_daily}')
-        self.plot_trade_points()
+        if self.plot_trades:
+            self.plot_trade_points()
 
         self.plot_asset_evolution()
         self.plot_portfolio_stock_deep_dive()
@@ -829,9 +831,9 @@ class LLMStrategy(bt.Strategy):
         plt.gcf().autofmt_xdate()
 
         # 保存图片
-        save_path = '/home/quant/zc/backtrader/QuantBacktester_57/plot/asset_evolution.png'
-        # 也可以使用配置中的路径，这里为了简单起见使用了硬编码路径，建议改为参数控制
-        # save_path = self.params.plot_path if hasattr(self.params, 'plot_path') else 'asset_evolution.png'
+        output_dir = os.path.abspath(getattr(config.paths, 'plot', 'plot'))
+        os.makedirs(output_dir, exist_ok=True)
+        save_path = os.path.join(output_dir, 'llm_asset_evolution.png')
 
         try:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
