@@ -246,8 +246,12 @@ class BacktestManager:
             use_score：是否使用score
         """
         cnt_t = 0
-        grouped_data = data.groupby(level=0)
-        for code, df in grouped_data:
+        grouped_data = []
+        for code, df in data.groupby(level=0):
+            min_dt = pd.to_datetime(df['datetime']).min() if 'datetime' in df.columns else pd.NaT
+            grouped_data.append((code, df, min_dt))
+        grouped_data.sort(key=lambda x: (pd.isna(x[2]), x[2], x[0]))
+        for code, df, _ in grouped_data:
             # 将'datetime'设置为新的索引
             df = df.set_index('datetime')
 
