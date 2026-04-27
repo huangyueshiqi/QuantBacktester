@@ -1050,6 +1050,9 @@ def main():
     parser.add_argument('--output', type=str, default='', help='输出结果文件路径')  # output.txt
     parser.add_argument('--topk_adjust', type=str, default='adjust_records.csv', help='topk调仓结果文件路径')
     parser.add_argument('--plot_output',type=str,default='plot/strategy_plot1.png',help='策略回测图片保存路径')
+    parser.add_argument('--llm_trade_file', type=str, default='', help='llm回测调仓表路径')
+    parser.add_argument('--plot_trades', action='store_true', help='llm是否绘制买卖点图')
+    parser.add_argument('--summary_output', type=str, default='', help='仅追加记录关键结果(JSONL)，包含final value与回测指标')
     parser.add_argument('--verbose', action='store_true', help='是否输出详细信息')
 
     # 解析参数
@@ -1065,6 +1068,32 @@ def main():
     # 记录开始时间
     start_time = time.time()
 
+    def _to_builtin(obj):
+        if obj is None:
+            return None
+        if isinstance(obj, (str, int, float, bool)):
+            return obj
+        if isinstance(obj, dict):
+            return {str(k): _to_builtin(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple, set)):
+            return [_to_builtin(v) for v in obj]
+        if hasattr(obj, 'items'):
+            try:
+                return {str(k): _to_builtin(v) for k, v in dict(obj).items()}
+            except Exception:
+                pass
+        return str(obj)
+
+    def _append_summary(record, output_path):
+        if not output_path:
+            return
+        output_path = os.path.abspath(output_path)
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        with open(output_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
     # 根据模式执行回测
     if args.mode == 'full':
         print("执行全量回测...")
@@ -1079,10 +1108,36 @@ def main():
         backtest_manager.run_buy_backtest(buy_list_file,args.plot_output,args.verbose)
     elif args.mode == 'llm':
         print("执行llm-stock全量回测...")
-        trade_file='/home/quant/zc/backtrader/QuantBacktester_57/llm/trade_portfolio_24_0.csv'
+        trade_file = args.llm_trade_file or '/home/quant/zc/backtrader/QuantBacktester_57/llm/trade_portfolio_24_0.csv'
         # trade_file="/home/quant/zc/backtrader/QuantBacktester_57/llm/input/五粮液/trade_signal_24_0.csv"
         # trade_file="/home/quant/zc/backtrader/QuantBacktester_57/llm/ln_input/stock_scores_all.csv"
-        backtest_manager.run_llm_backtest(trade_file,args.plot_output,args.verbose)
+        result = backtest_manager.run_llm_backtest(
+            trade_file=trade_file,
+            plot_output=args.plot_output,
+            plot_trades=args.plot_trades,
+            verbose=args.verbose
+        )
+        strat = result[0] if result else None
+        if strat is not None:
+            record = {
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'mode': args.mode,
+                'trade_file': trade_file,
+                'plot_output': args.plot_output,
+                'plot_trades': bool(args.plot_trades),
+                'final_portfolio_value': float(strat.broker.getvalue()),
+            }
+            analyzers = getattr(strat, 'analyzers', None)
+            if analyzers is not None:
+                if hasattr(analyzers, '_AnnualReturn'):
+                    record['annual_return'] = _to_builtin(analyzers._AnnualReturn.get_analysis())
+                if hasattr(analyzers, '_SharpeRatio'):
+                    record['sharpe_ratio'] = _to_builtin(analyzers._SharpeRatio.get_analysis())
+                if hasattr(analyzers, '_DrawDown'):
+                    record['drawdown'] = _to_builtin(analyzers._DrawDown.get_analysis())
+                if hasattr(analyzers, 'my_analyzer'):
+                    record['metrics'] = _to_builtin(analyzers.my_analyzer.get_analysis())
+            _append_summary(record, args.summary_output)
     elif args.mode == 'incremental':  # incremental
         print("执行增量回测...")
         backtest_manager.run_incremental_backtest(args.predict, args.pool, args.plot_output,args.verbose)
