@@ -1053,6 +1053,7 @@ def main():
     parser.add_argument('--llm_trade_file', type=str, default='', help='llm回测调仓表路径')
     parser.add_argument('--plot_trades', action='store_true', help='llm是否绘制买卖点图')
     parser.add_argument('--summary_output', type=str, default='', help='仅追加记录关键结果(JSONL)，包含final value与回测指标')
+    parser.add_argument('--summary_dir', type=str, default='', help='每次运行输出独立JSON结果文件到该目录')
     parser.add_argument('--verbose', action='store_true', help='是否输出详细信息')
 
     # 解析参数
@@ -1093,6 +1094,21 @@ def main():
             os.makedirs(output_dir, exist_ok=True)
         with open(output_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+    def _write_summary_json(record, output_dir, trade_file=''):
+        if not output_dir:
+            return ''
+        output_dir = os.path.abspath(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        base = os.path.splitext(os.path.basename(trade_file or 'run'))[0]
+        slug = ''.join(c if (c.isalnum() or c in ('-', '_')) else '_' for c in base)[:80] or 'run'
+        run_id = f"{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}"
+        record = dict(record)
+        record['run_id'] = run_id
+        output_path = os.path.join(output_dir, f"{run_id}_{slug}.json")
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(record, f, ensure_ascii=False, indent=2)
+        return output_path
 
     # 根据模式执行回测
     if args.mode == 'full':
@@ -1138,6 +1154,7 @@ def main():
                 if hasattr(analyzers, 'my_analyzer'):
                     record['metrics'] = _to_builtin(analyzers.my_analyzer.get_analysis())
             _append_summary(record, args.summary_output)
+            _write_summary_json(record, args.summary_dir, trade_file)
     elif args.mode == 'incremental':  # incremental
         print("执行增量回测...")
         backtest_manager.run_incremental_backtest(args.predict, args.pool, args.plot_output,args.verbose)
