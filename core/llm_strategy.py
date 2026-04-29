@@ -379,9 +379,6 @@ class LLMStrategy(bt.Strategy):
             expected_remaining_weight = current_weight + weight_diff
             if expected_remaining_weight <= 0.005:
                 order = self.close(data=data)
-            elif weight_diff <= -current_weight:
-                # 完全清仓
-                order = self.close(data=data)
             else:
                 # 部分减仓
                 raw_sell_unit = (current_value * abs(weight_diff)) / data.close[0]
@@ -861,7 +858,6 @@ class LLMStrategy(bt.Strategy):
             print(f"资产变化图已保存至: {save_path}")
         except Exception as e:
             print(f"保存资产变化图失败: {e}")
-
 
 
 
