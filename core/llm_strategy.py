@@ -376,15 +376,21 @@ class LLMStrategy(bt.Strategy):
             # if hasattr(data, 'stopping') and data.stopping[1] * self.params.low_stopping > data.low[1]:
             #     continue
 
-            if weight_diff <= -current_weight:
+            expected_remaining_weight = current_weight + weight_diff
+            if expected_remaining_weight <= 0.005:
+                order = self.close(data=data)
+            elif weight_diff <= -current_weight:
                 # 完全清仓
                 order = self.close(data=data)
             else:
                 # 部分减仓
                 raw_sell_unit = (current_value * abs(weight_diff)) / data.close[0]
-                sell_unit = math.floor(raw_sell_unit / 100) * 100 if self.params.round_to_hundred else math.floor(
-                    raw_sell_unit)
-                if sell_unit > 0:
+                sell_unit = math.floor(raw_sell_unit / 100) * 100 if self.params.round_to_hundred else math.floor(raw_sell_unit)
+                current_size = float(self.getposition(data).size)
+                sell_unit = min(float(sell_unit), current_size)
+                if self.params.round_to_hundred and current_size - sell_unit < 100:
+                    order = self.close(data=data)
+                elif sell_unit > 0:
                     order = self.sell(data=data, size=sell_unit)
 
             if  order:
@@ -855,7 +861,6 @@ class LLMStrategy(bt.Strategy):
             print(f"资产变化图已保存至: {save_path}")
         except Exception as e:
             print(f"保存资产变化图失败: {e}")
-
 
 
 
