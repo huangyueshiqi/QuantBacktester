@@ -190,11 +190,50 @@ class TradeExecutor:
             weight_diff = target_weight - history_weight
             operations.append((stock_code, weight_diff, bs_data))
 
+        def _close_all(stock_code, bs_data):
+            try:
+                if bs_data.stopping[1] * self.params.low_stopping > bs_data.low[1]:
+                    print(f'{stock_code}跌停，无法卖出')
+                    return
+            except IndexError:
+                print("处理跌停股票时，Reached last bar,skipping future data access")
+                return
+            order = self.strategy.close(data=bs_data)
+            self.order_list.append(order)
+
         # 先执行卖出操作，释放资金，先卖大单
         sell_operations = sorted([op for op in operations if op[1] < 0], key=lambda x: (x[1], x[0]))
         for stock_code, weight_diff, bs_data in sell_operations:
             if weight_diff <= 0:
-                self.to_sell(stock_code, bs_data, -weight_diff)
+                pos_size = abs(float(self.strategy.getposition(bs_data).size))
+                if pos_size <= 0:
+                    continue
+                target_weight = 0.0
+                if stock_code in weights['code'].values:
+                    target_weight = float(weights.loc[weights['code'] == stock_code, 'weight'].iloc[0])
+                if target_weight <= 0:
+                    _close_all(stock_code, bs_data)
+                    continue
+
+                ratio = -weight_diff
+                raw_sell_unit = (self.strategy.broker.getvalue() * ratio * self.params.max_position) / bs_data.close[0]
+                sell_unit = math.floor(raw_sell_unit / 100) * 100 if self.params.round_to_hundred else raw_sell_unit
+                sell_unit = min(float(sell_unit), pos_size)
+                if sell_unit <= 0:
+                    continue
+                dust_threshold = 100.0 if self.params.round_to_hundred else 0.0
+                if pos_size - sell_unit < dust_threshold:
+                    _close_all(stock_code, bs_data)
+                    continue
+
+                if self.params.execution_price == 'open':
+                    exectype = bt.Order.Market
+                elif self.params.execution_price == 'close':
+                    exectype = bt.Order.Close
+                else:
+                    exectype = bt.Order.Market
+                order = self.strategy.sell(data=bs_data, size=sell_unit, exectype=exectype)
+                self.order_list.append(order)
 
         # 再执行买入操作，先买大单
         buy_operations = sorted([op for op in operations if op[1] > 0], key=lambda x: (x[1], x[0]), reverse=True)
