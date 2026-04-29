@@ -689,28 +689,43 @@ class LLMStrategy(bt.Strategy):
         参数:
             trade: 交易对象
         """
-        if trade.isclosed:  # 买&卖，交易结束
-            self.reward += (trade.pnlcomm > 0) * trade.pnlcomm  # 盈利交易里总盈利金额
-            self.rewardcnt += (trade.pnlcomm > 0)  # 盈利交易次数
-            self.risk += (trade.pnlcomm < 0) * (0 - trade.pnlcomm)  # 亏损交易里总的亏损金额
-            self.riskcnt += (trade.pnlcomm < 0)  # 亏损交易次数
+        if getattr(self, 'trade_pnls', None) is None:
+            self.trade_pnls = {}
+            self.trade_comms = {}
+
+        current_pnl = trade.pnlcomm
+        last_pnl = self.trade_pnls.get(trade.ref, 0.0)
+        diff = current_pnl - last_pnl
+        
+        current_comm = trade.commission
+        last_comm = self.trade_comms.get(trade.ref, 0.0)
+        diff_comm = current_comm - last_comm
+
+        if abs(diff) > 1e-6:  # 发生了真实减仓或清仓
+            self.reward += (diff > 0) * diff  # 盈利交易里总盈利金额
+            self.rewardcnt += (diff > 0)  # 盈利交易次数
+            self.risk += (diff < 0) * abs(diff)  # 亏损交易里总的亏损金额
+            self.riskcnt += (diff < 0)  # 亏损交易次数
             risk_reward_ratio = 0
             if self.rewardcnt * self.riskcnt:
                 # 盈亏比
                 risk_reward_ratio = (self.reward / self.rewardcnt) / (self.risk / self.riskcnt)
 
-            self.total_profit += trade.pnlcomm  # 总的利润
+            self.total_profit += diff  # 总的利润
             self.total_trades += 1  # 总的交易次数
-            self.winning_trades += (trade.pnlcomm > 0)  # 盈利交易次数
-            self.total_commission += trade.commission  # 总的佣金
+            self.winning_trades += (diff > 0)  # 盈利交易次数
+            self.total_commission += diff_comm  # 总的佣金
 
             stock_name = trade.data._name  # 股票名称
-            self.stock_total_pnl_gross[stock_name]=self.stock_total_pnl_gross.get(stock_name,0)+trade.pnl
-            self.stock_trade_count[stock_name]=self.stock_trade_count.get(stock_name,0)+1
+            self.stock_total_pnl_gross[stock_name] = self.stock_total_pnl_gross.get(stock_name, 0) + diff
+            self.stock_trade_count[stock_name] = self.stock_trade_count.get(stock_name, 0) + 1
             self.log(
-                f'股票:{stock_name},毛收益:{trade.pnl:.2f},扣佣后收益:{trade.pnlcomm:.2f},佣金:{trade.commission:.2f},总的佣金:{self.total_commission:.2f},资产市值:{self.broker.getvalue():.2f},'
+                f'股票:{stock_name},部分/全部平仓收益:{diff:.2f},本次佣金:{diff_comm:.2f},总佣金:{self.total_commission:.2f},资产市值:{self.broker.getvalue():.2f},'
                 f'持仓市值:{self.get_position_value():.2f},现金:{self.broker.getcash():.2f},总收益:{self.total_profit:.2f},胜率:{100 * self.winning_trades / self.total_trades:.2f},盈亏比:{risk_reward_ratio:.2f},'
-                f'开仓时间：{trade.dtopen},平仓时间：{trade.dtclose},交易头寸：{trade.size}')
+                f'开仓时间：{trade.dtopen},更新时间：{trade.dtclose},当前头寸：{trade.size}')
+            
+            self.trade_pnls[trade.ref] = current_pnl
+            self.trade_comms[trade.ref] = current_comm
 
 
     def notify_cashvalue(self, cash, value):

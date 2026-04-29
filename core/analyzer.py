@@ -270,13 +270,22 @@ class StrategyAnalyzer(bt.Analyzer):
         参数:
             trade: 交易对象
         """
-        if trade.isclosed:
-            if trade.pnlcomm > 0:
+        if getattr(self, 'trade_pnls', None) is None:
+            self.trade_pnls = {}
+            
+        current_pnl = trade.pnlcomm
+        last_pnl = self.trade_pnls.get(trade.ref, 0.0)
+        diff = current_pnl - last_pnl
+        
+        # 只要有盈亏变化(即发生了真实的减仓/清仓导致已实现盈亏变动)，就记录一次胜负
+        if abs(diff) > 1e-6:
+            if diff > 0:
                 self.wins += 1
-                self.gross_profits += trade.pnlcomm
+                self.gross_profits += diff
             else:
                 self.losses += 1
-                self.gross_losses += trade.pnlcomm
+                self.gross_losses += diff
+            self.trade_pnls[trade.ref] = current_pnl
     
     def analyze(self, strategy=None):
         """
