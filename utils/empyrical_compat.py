@@ -16,7 +16,7 @@ def _annualization(annualization):
     return 252 if annualization is None else int(annualization)
 
 
-class stats:
+class _FallbackStats:
     @staticmethod
     def cum_returns_final(returns):
         r = _to_1d_float_array(returns)
@@ -91,10 +91,10 @@ class stats:
 
     @staticmethod
     def calmar_ratio(returns, annualization=252):
-        mdd = stats.max_drawdown(returns)
+        mdd = _FallbackStats.max_drawdown(returns)
         if mdd >= 0:
             return 0.0
-        ar = stats.annual_return(returns, annualization=annualization)
+        ar = _FallbackStats.annual_return(returns, annualization=annualization)
         denom = abs(mdd)
         return float(ar / denom) if denom > 0 else 0.0
 
@@ -125,17 +125,182 @@ class stats:
         rf = float(risk_free)
         r = r[:n]
         f = f[:n]
-        b = stats.beta(r, f, risk_free=rf)
+        b = _FallbackStats.beta(r, f, risk_free=rf)
         ex_port = r - rf
         ex_fact = f - rf
         a_daily = np.mean(ex_port - b * ex_fact)
         return float(a_daily * ann)
 
 
+class _QuantStatsAdapter:
+    @staticmethod
+    def cum_returns_final(returns):
+        fn = getattr(_qs.stats, "comp", None)
+        if fn is None:
+            return _FallbackStats.cum_returns_final(returns)
+        try:
+            return float(fn(returns))
+        except Exception:
+            return _FallbackStats.cum_returns_final(returns)
+
+    @staticmethod
+    def max_drawdown(returns):
+        fn = getattr(_qs.stats, "max_drawdown", None)
+        if fn is None:
+            return _FallbackStats.max_drawdown(returns)
+        try:
+            return float(fn(returns))
+        except Exception:
+            return _FallbackStats.max_drawdown(returns)
+
+    @staticmethod
+    def annual_return(returns, annualization=252):
+        fn = getattr(_qs.stats, "cagr", None)
+        if fn is None:
+            return _FallbackStats.annual_return(returns, annualization=annualization)
+        try:
+            return float(fn(returns, rf=0.0, periods=_annualization(annualization)))
+        except TypeError:
+            try:
+                return float(fn(returns))
+            except Exception:
+                return _FallbackStats.annual_return(returns, annualization=annualization)
+
+    @staticmethod
+    def annual_volatility(returns, annualization=252):
+        fn = getattr(_qs.stats, "volatility", None)
+        if fn is None:
+            return _FallbackStats.annual_volatility(returns, annualization=annualization)
+        try:
+            return float(fn(returns, periods=_annualization(annualization), annualize=True))
+        except TypeError:
+            try:
+                return float(fn(returns))
+            except Exception:
+                return _FallbackStats.annual_volatility(returns, annualization=annualization)
+
+    @staticmethod
+    def sharpe_ratio(returns, risk_free=0.0, annualization=252):
+        fn = getattr(_qs.stats, "sharpe", None)
+        if fn is None:
+            return _FallbackStats.sharpe_ratio(returns, risk_free=risk_free, annualization=annualization)
+        try:
+            return float(
+                fn(
+                    returns,
+                    rf=float(risk_free),
+                    periods=_annualization(annualization),
+                    annualize=True,
+                )
+            )
+        except TypeError:
+            try:
+                return float(fn(returns))
+            except Exception:
+                return _FallbackStats.sharpe_ratio(returns, risk_free=risk_free, annualization=annualization)
+
+    @staticmethod
+    def sortino_ratio(returns, required_return=0.0, annualization=252):
+        fn = getattr(_qs.stats, "sortino", None)
+        if fn is None:
+            return _FallbackStats.sortino_ratio(returns, required_return=required_return, annualization=annualization)
+        try:
+            return float(
+                fn(
+                    returns,
+                    rf=float(required_return),
+                    periods=_annualization(annualization),
+                    annualize=True,
+                )
+            )
+        except TypeError:
+            try:
+                return float(fn(returns))
+            except Exception:
+                return _FallbackStats.sortino_ratio(
+                    returns, required_return=required_return, annualization=annualization
+                )
+
+    @staticmethod
+    def omega_ratio(returns, risk_free=0.0):
+        fn = getattr(_qs.stats, "omega", None)
+        if fn is None:
+            return _FallbackStats.omega_ratio(returns, risk_free=risk_free)
+        try:
+            return float(fn(returns, rf=float(risk_free)))
+        except TypeError:
+            try:
+                return float(fn(returns))
+            except Exception:
+                return _FallbackStats.omega_ratio(returns, risk_free=risk_free)
+
+    @staticmethod
+    def calmar_ratio(returns, annualization=252):
+        fn = getattr(_qs.stats, "calmar", None)
+        if fn is None:
+            return _FallbackStats.calmar_ratio(returns, annualization=annualization)
+        try:
+            return float(fn(returns, periods=_annualization(annualization)))
+        except TypeError:
+            try:
+                return float(fn(returns))
+            except Exception:
+                return _FallbackStats.calmar_ratio(returns, annualization=annualization)
+
+    @staticmethod
+    def beta(returns, factor_returns, risk_free=0.0):
+        fn = getattr(_qs.stats, "beta", None)
+        if fn is None:
+            return _FallbackStats.beta(returns, factor_returns, risk_free=risk_free)
+        try:
+            return float(fn(returns, factor_returns, rf=float(risk_free)))
+        except TypeError:
+            try:
+                return float(fn(returns, factor_returns))
+            except Exception:
+                return _FallbackStats.beta(returns, factor_returns, risk_free=risk_free)
+
+    @staticmethod
+    def alpha(returns, factor_returns, risk_free=0.0, annualization=252):
+        fn = getattr(_qs.stats, "alpha", None)
+        if fn is None:
+            return _FallbackStats.alpha(
+                returns,
+                factor_returns,
+                risk_free=risk_free,
+                annualization=annualization,
+            )
+        try:
+            return float(
+                fn(
+                    returns,
+                    factor_returns,
+                    rf=float(risk_free),
+                    periods=_annualization(annualization),
+                )
+            )
+        except TypeError:
+            try:
+                return float(fn(returns, factor_returns))
+            except Exception:
+                return _FallbackStats.alpha(
+                    returns,
+                    factor_returns,
+                    risk_free=risk_free,
+                    annualization=annualization,
+                )
+
+
+stats = _FallbackStats
+
 try:
-    import empyrical as _empyrical
+    import quantstats as _qs
 
-    stats = _empyrical.stats
+    stats = _QuantStatsAdapter
 except Exception:
-    pass
+    try:
+        import empyrical as _empyrical
 
+        stats = _empyrical.stats
+    except Exception:
+        stats = _FallbackStats
