@@ -8,6 +8,8 @@ import backtrader as bt
 import pickle
 import json
 import os
+from datetime import datetime, date
+import glob
 
 from matplotlib import pyplot as plt
 import matplotlib.dates as mdates
@@ -574,7 +576,7 @@ class BacktestManager:
         return result
 
 
-    def run_llm_backtest(self, trade_file=None,plot_output="plot/strategy_plot.png", verbose=True):
+    def run_llm_backtest(self, trade_file=None,plot_output="plot/strategy_plot.png", verbose=True, metrics_output=None):
         """
         执行全量回测
 
@@ -657,15 +659,58 @@ class BacktestManager:
 
         # 获取策略实例
         strat = result[0]
-        print('Final Portfolio Value: %.3f' % cerebro.broker.getvalue())
+        final_value = float(cerebro.broker.getvalue())
+        print('Final Portfolio Value: %.3f' % final_value)
 
         if not config.backtest.strategy.is_predict:
-            # 输出回测结果
+            annual_return = strat.analyzers._AnnualReturn.get_analysis()
+            sharpe_ratio = strat.analyzers._SharpeRatio.get_analysis()
+            drawdown = strat.analyzers._DrawDown.get_analysis()
+            other_metrics = strat.analyzers.my_analyzer.get_analysis()
+
             print("=============== 回测结果 ===============")
-            print("年化收益率:", strat.analyzers._AnnualReturn.get_analysis())
-            print("夏普比率:", strat.analyzers._SharpeRatio.get_analysis())
-            print("最大回撤:", strat.analyzers._DrawDown.get_analysis())
-            print("其他指标:", strat.analyzers.my_analyzer.get_analysis())
+            print("年化收益率:", annual_return)
+            print("夏普比率:", sharpe_ratio)
+            print("最大回撤:", drawdown)
+            print("其他指标:", other_metrics)
+
+            if metrics_output is None:
+                trade_tag = os.path.splitext(os.path.basename(trade_file or "llm_trade"))[0]
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                metrics_output = os.path.join(config.paths.result, f"llm_backtest_metrics_{trade_tag}_{ts}.json")
+
+            def _json_default(obj):
+                if isinstance(obj, (np.integer, np.floating)):
+                    return obj.item()
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                if isinstance(obj, (datetime, date)):
+                    return obj.isoformat()
+                if isinstance(obj, pd.Timestamp):
+                    return obj.isoformat()
+                if isinstance(obj, pd.Series):
+                    return obj.to_dict()
+                if isinstance(obj, pd.DataFrame):
+                    return obj.to_dict(orient="records")
+                return str(obj)
+
+            metrics_payload = {
+                "trade_file": trade_file,
+                "start_date": start_date,
+                "end_date": end_date,
+                "final_portfolio_value": final_value,
+                "annual_return": annual_return,
+                "sharpe_ratio": sharpe_ratio,
+                "drawdown": drawdown,
+                "other_metrics": other_metrics,
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+            }
+
+            with open(metrics_output, "w", encoding="utf-8") as f:
+                json.dump(metrics_payload, f, ensure_ascii=False, indent=2, default=_json_default)
+
+            strat.metrics_output_path = metrics_output
+            strat.metrics_payload = metrics_payload
 
         # fig=cerebro.plot(style='candle',volume=False,subplot=True)
         # fig[0][0].savefig('plot/backtest_result.png',dpi=300,bbox_inches='tight')
@@ -1041,6 +1086,9 @@ def main():
     parser.add_argument('--output', type=str, default='', help='输出结果文件路径')  # output.txt
     parser.add_argument('--topk_adjust', type=str, default='adjust_records.csv', help='topk调仓结果文件路径')
     parser.add_argument('--plot_output',type=str,default='plot/strategy_plot1.png',help='策略回测图片保存路径')
+    parser.add_argument('--trade_file', type=str, default='', help='llm模式交易信号CSV文件路径（可选）')
+    parser.add_argument('--trade_dir', type=str, default='', help='llm模式交易信号CSV目录（可选，目录下将按*.csv批量执行）')
+    parser.add_argument('--metrics_output', type=str, default='', help='llm模式回测指标JSON输出路径（单文件模式使用，可选）')
     parser.add_argument('--verbose', action='store_true', help='是否输出详细信息')
 
     # 解析参数
@@ -1070,10 +1118,16 @@ def main():
         backtest_manager.run_buy_backtest(buy_list_file,args.plot_output,args.verbose)
     elif args.mode == 'llm':
         print("执行llm-stock全量回测...")
-        trade_file='/home/quant/zc/backtrader/QuantBacktester_57/llm/trade_portfolio_24_0.csv'
-        # trade_file="/home/quant/zc/backtrader/QuantBacktester_57/llm/input/五粮液/trade_signal_24_0.csv"
-        # trade_file="/home/quant/zc/backtrader/QuantBacktester_57/llm/ln_input/stock_scores_all.csv"
-        backtest_manager.run_llm_backtest(trade_file,args.plot_output,args.verbose)
+        metrics_output = args.metrics_output if args.metrics_output else None
+        if args.trade_dir:
+            trade_files = sorted(glob.glob(os.path.join(args.trade_dir, "*.csv")))
+            if not trade_files:
+                raise FileNotFoundError(f'目录下未找到csv文件：{args.trade_dir}')
+            for tf in trade_files:
+                backtest_manager.run_llm_backtest(tf, args.plot_output, args.verbose, metrics_output=None)
+        else:
+            trade_file = args.trade_file or '/home/quant/zc/backtrader/QuantBacktester_57/llm/trade_portfolio_24_0.csv'
+            backtest_manager.run_llm_backtest(trade_file, args.plot_output, args.verbose, metrics_output=metrics_output)
     elif args.mode == 'incremental':  # incremental
         print("执行增量回测...")
         backtest_manager.run_incremental_backtest(args.predict, args.pool, args.plot_output,args.verbose)
