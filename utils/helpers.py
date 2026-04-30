@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 import matplotlib
 import time
 import pickle
-import empyrical as er
+from utils import empyrical_compat as er
 from matplotlib import font_manager
 
 from utils.config import config

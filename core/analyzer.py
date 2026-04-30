@@ -1,7 +1,7 @@
 import backtrader as bt
 import pandas as pd
 import numpy as np
-import empyrical as er
+from utils import empyrical_compat as er
 from abc import ABC, abstractmethod
 
 # 修复 NINF 问题
