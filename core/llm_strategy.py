@@ -199,6 +199,7 @@ class LLMStrategy(bt.Strategy):
         # 新增参数
         self.signal_data = trade_list
         self.signal_has_action=trade_list is not None and 'action' in trade_list.columns
+        self.keep_holding_if_no_signal = self.signal_has_action
         self.holding_periods = 40  # 持仓天数
         self.take_profit = 0.5
         self.stop_loss = 0.3
@@ -229,6 +230,7 @@ class LLMStrategy(bt.Strategy):
         signal_dict={}
         for stock in code_list:
             stock_signals=trade_list[trade_list['instrument']==stock].copy()
+            stock_signals['datetime'] = pd.to_datetime(stock_signals['datetime']).dt.strftime('%Y-%m-%d')
             stock_signals.set_index('datetime',inplace=True)
             signal_dict[stock]=stock_signals
         return signal_dict
@@ -312,7 +314,7 @@ class LLMStrategy(bt.Strategy):
                     continue
 
             # 如果没有新信号，但当前持有，则继续保持在目标名单中
-            if is_held:
+            if is_held and self.keep_holding_if_no_signal:
                 target_stocks.append(stock_name)
 
         # 2. 调用通用的同日买卖、等权调仓逻辑
@@ -838,7 +840,6 @@ class LLMStrategy(bt.Strategy):
             print(f"资产变化图已保存至: {save_path}")
         except Exception as e:
             print(f"保存资产变化图失败: {e}")
-
 
 
 
