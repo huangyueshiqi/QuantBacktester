@@ -129,6 +129,7 @@ class LLMStrategy(bt.Strategy):
             'high_limit': config.backtest.strategy.high_limit,  # 离涨停价的2个点的距离内默认为涨停,买不到
             'vol_percent': config.backtest.strategy.vol_percent,  # 日成交量的比例,高于该比例买卖得不到执行
             'max_position': config.backtest.strategy.max_position,  # 占资产总最大持仓比例
+            'weighting_method': getattr(config.backtest.strategy, 'weighting_method', 'equal'),
             'deal_dividend': config.backtest.strategy.deal_dividend,  # 是否处理分红,True 处理;否则,False
             'cash2shares': config.backtest.strategy.cash2shares,  # 现金分红是否填权，填权为True;否则,False
             'round_to_hundred': config.backtest.strategy.round_to_hundred,  # 是否将股票数量设置为100的整数倍
@@ -334,8 +335,53 @@ class LLMStrategy(bt.Strategy):
                     self.order_list.append(self.close(data=data))
             return
 
-        # 3. 计算目标等权重
-        target_weight = min(self.params.max_position / len(target_stocks),self.single_stock_max_weight)
+        weighting_method = str(getattr(self.params, 'weighting_method', 'equal')).lower()
+        caps = {}
+        if weighting_method == 'mktcap':
+            for data in self.datas:
+                stock_code = data._name
+                if stock_code not in target_stocks:
+                    continue
+                cap_val = None
+                if hasattr(data, 'MARKETVALUE'):
+                    try:
+                        cap_val = float(data.MARKETVALUE[0])
+                    except Exception:
+                        cap_val = None
+                if cap_val is not None and cap_val > 0:
+                    caps[stock_code] = cap_val
+        use_mktcap = weighting_method == 'mktcap' and len(caps) == len(target_stocks) and sum(caps.values()) > 0
+        if use_mktcap:
+            raw_weights = {k: v / sum(caps.values()) for k, v in caps.items()}
+            target_weights = {k: min(self.params.max_position * w, self.single_stock_max_weight) for k, w in raw_weights.items()}
+
+            capped = {k for k, w in target_weights.items() if abs(w - self.single_stock_max_weight) < 1e-12}
+            for _ in range(10):
+                total_assigned = sum(target_weights.values())
+                remaining = self.params.max_position - total_assigned
+                if remaining <= 1e-12:
+                    break
+                free = [k for k in target_stocks if k not in capped]
+                if not free:
+                    break
+                free_raw_sum = sum(raw_weights[k] for k in free)
+                if free_raw_sum <= 0:
+                    break
+                updated = False
+                for k in free:
+                    add = remaining * (raw_weights[k] / free_raw_sum)
+                    new_w = target_weights[k] + add
+                    if new_w >= self.single_stock_max_weight:
+                        target_weights[k] = self.single_stock_max_weight
+                        capped.add(k)
+                        updated = True
+                    else:
+                        target_weights[k] = new_w
+                if not updated:
+                    break
+        else:
+            target_weight = min(self.params.max_position / len(target_stocks), self.single_stock_max_weight)
+            target_weights = {k: target_weight for k in target_stocks}
         current_value = self.broker.getvalue()
 
         operations = []  # 记录格式: (股票数据, 权重差值)
@@ -358,7 +404,7 @@ class LLMStrategy(bt.Strategy):
                 current_weight = 0.0
 
             # 判断目标权重
-            expected_weight = target_weight if stock_code in target_stocks else 0.0
+            expected_weight = float(target_weights.get(stock_code, 0.0))
 
             # 计算权重差 (正数为买，负数为卖)
             weight_diff = expected_weight - current_weight
@@ -840,7 +886,6 @@ class LLMStrategy(bt.Strategy):
             print(f"资产变化图已保存至: {save_path}")
         except Exception as e:
             print(f"保存资产变化图失败: {e}")
-
 
 
 

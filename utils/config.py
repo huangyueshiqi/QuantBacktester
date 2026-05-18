@@ -32,6 +32,7 @@ class StrategyConfig:
     high_limit: float = 0.98
     vol_percent: float = 0.1
     max_position: float = 0.95
+    weighting_method: str = 'equal'  # equal / mktcap
     deal_dividend: bool = False
     cash2shares: bool = True
     save_state: bool = False  #预测:True，回测：False,存储增量回测状态时为True
@@ -144,5 +145,4 @@ class Config:
 
 # 全局配置实例
 config = Config()
-
 
